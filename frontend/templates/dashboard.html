@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adaptive ML Firewall — Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ── Top Nav ─────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="2">
+        <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2z"/>
+        <polyline points="9 12 11 14 15 10"/>
+      </svg>
+      <span class="logo-text">Adaptive ML<span class="accent">Firewall</span></span>
+    </div>
+  </div>
+  <div class="topbar-center">
+    <span class="status-pill" id="statusPill">
+      <span class="pulse-dot"></span> LIVE MONITORING
+    </span>
+  </div>
+  <div class="topbar-right">
+    <span class="datetime" id="clock">--:--:--</span>
+  </div>
+</header>
+
+<!-- ── Main Layout ─────────────────────────────────────── -->
+<main class="main">
+
+  <!-- Stat Cards -->
+  <section class="cards-grid">
+    <div class="card card--blue">
+      <div class="card-icon">📦</div>
+      <div class="card-body">
+        <div class="card-value" id="totalPackets">0</div>
+        <div class="card-label">Total Packets</div>
+      </div>
+      <div class="card-glow"></div>
+    </div>
+    <div class="card card--orange">
+      <div class="card-icon">⚠️</div>
+      <div class="card-body">
+        <div class="card-value" id="anomaliesDetected">0</div>
+        <div class="card-label">Anomalies Detected</div>
+      </div>
+      <div class="card-glow"></div>
+    </div>
+    <div class="card card--red">
+      <div class="card-icon">🔒</div>
+      <div class="card-body">
+        <div class="card-value" id="blockedCount">0</div>
+        <div class="card-label">Blocked IPs</div>
+      </div>
+      <div class="card-glow"></div>
+    </div>
+    <div class="card card--green">
+      <div class="card-icon">📈</div>
+      <div class="card-body">
+        <div class="card-value" id="detectionRate">0%</div>
+        <div class="card-label">Detection Rate</div>
+      </div>
+      <div class="card-glow"></div>
+    </div>
+  </section>
+
+  <!-- Charts Row -->
+  <section class="charts-row">
+    <div class="chart-box">
+      <div class="chart-header">
+        <h3>Live Anomaly Rate <span class="badge badge--cyan">%</span></h3>
+      </div>
+      <canvas id="anomalyRateChart" height="100"></canvas>
+    </div>
+    <div class="chart-box">
+      <div class="chart-header">
+        <h3>Traffic Distribution <span class="badge badge--purple">LIVE</span></h3>
+      </div>
+      <canvas id="trafficDistChart" height="100"></canvas>
+    </div>
+    <div class="chart-box chart-box--wide">
+      <div class="chart-header">
+        <h3>Packet Volume Over Time <span class="badge badge--blue">60s</span></h3>
+      </div>
+      <canvas id="packetVolumeChart" height="80"></canvas>
+    </div>
+  </section>
+
+  <!-- Bottom Row: Event Feed + Blocked IPs -->
+  <section class="bottom-row">
+
+    <!-- Recent Events Feed -->
+    <div class="panel panel--events">
+      <div class="panel-header">
+        <h3>🔍 Recent Events</h3>
+        <span class="badge badge--orange" id="eventCount">0 events</span>
+      </div>
+      <div class="events-list" id="eventsList">
+        <div class="event-placeholder">Waiting for traffic data...</div>
+      </div>
+    </div>
+
+    <!-- Blocked IPs -->
+    <div class="panel panel--blocked">
+      <div class="panel-header">
+        <h3>🚫 Blocked IPs</h3>
+        <button class="btn-refresh" onclick="fetchStats()">↺ Refresh</button>
+      </div>
+      <div class="blocked-list" id="blockedList">
+        <div class="event-placeholder">No IPs currently blocked.</div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- Unblock Modal -->
+<div class="modal-overlay" id="unblockModal" style="display:none;">
+  <div class="modal">
+    <h3>Unblock IP</h3>
+    <p>Are you sure you want to unblock <strong id="modalIp"></strong>?</p>
+    <div class="modal-actions">
+      <button class="btn btn--green" id="confirmUnblock">Confirm</button>
+      <button class="btn btn--gray" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/script.js"></script>
+</body>
+</html>

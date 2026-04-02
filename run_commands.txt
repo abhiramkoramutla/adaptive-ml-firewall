@@ -1,0 +1,207 @@
+============================================================
+ ADAPTIVE AI FIREWALL — COMPLETE COMMAND EXECUTION GUIDE
+============================================================
+
+============================================================
+PHASE 1: GOOGLE COLAB — MODEL TRAINING
+============================================================
+
+Step 1: Open Google Colab (https://colab.research.google.com)
+Step 2: Upload colab_training.py or paste it into a notebook
+Step 3: Run cell by cell from top to bottom
+Step 4: When prompted, upload your UNSW-NB15 .parquet file
+Step 5: Wait for training to complete
+Step 6: The last cell downloads:
+          - model.pkl
+          - preprocessor.pkl
+          - feature_schema.pkl
+
+============================================================
+PHASE 2: KALI LINUX SETUP
+============================================================
+
+── 2.1: System dependencies ─────────────────────────────
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y \
+  python3 python3-pip python3-venv \
+  libnetfilter-queue-dev \
+  iptables \
+  net-tools \
+  nmap \
+  hping3 \
+  tcpdump \
+  libpcap-dev \
+  build-essential
+
+── 2.2: Create project directory ────────────────────────
+mkdir -p ~/adaptive_ai_firewall
+cd ~/adaptive_ai_firewall
+
+── 2.3: Copy your project files ─────────────────────────
+# (assumes you cloned or copied the project here)
+# Place downloaded model files:
+mkdir -p model
+cp ~/Downloads/model.pkl          model/
+cp ~/Downloads/preprocessor.pkl  model/
+cp ~/Downloads/feature_schema.pkl model/
+
+── 2.4: Create virtual environment ──────────────────────
+python3 -m venv venv
+source venv/bin/activate
+
+── 2.5: Install Python dependencies ─────────────────────
+pip install --upgrade pip
+pip install -r backend/requirements.txt
+
+# If netfilterqueue fails, build from source:
+pip install git+https://github.com/kti/python-netfilterqueue
+
+============================================================
+PHASE 3: CONFIGURE IPTABLES
+============================================================
+
+── 3.1: Enable NFQUEUE (capture all incoming packets) ───
+sudo iptables -I INPUT -j NFQUEUE --queue-num 0
+
+# Verify rule was added:
+sudo iptables -L INPUT -n -v
+
+── 3.2: Optional — also capture forwarded traffic ───────
+sudo iptables -I FORWARD -j NFQUEUE --queue-num 0
+
+============================================================
+PHASE 4: START THE FIREWALL
+============================================================
+
+── 4.1: Run the full stack (needs root for NFQUEUE) ─────
+cd ~/adaptive_ai_firewall
+source venv/bin/activate
+sudo venv/bin/python backend/app.py
+
+# You should see:
+# [INFO] Loading model and preprocessor...
+# [INFO] Packet processor started.
+# [INFO] Listening for packets...
+# * Running on http://0.0.0.0:5000
+
+── 4.2: Access dashboard ────────────────────────────────
+Open browser: http://localhost:5000
+# Or from another machine: http://<KALI-IP>:5000
+
+============================================================
+PHASE 5: TESTING SCENARIOS
+============================================================
+
+── Test 1: Normal traffic (baseline) ────────────────────
+ping -c 20 8.8.8.8
+curl -s http://example.com > /dev/null
+
+── Test 2: High packet rate (flood simulation) ──────────
+# From another terminal (requires hping3):
+sudo hping3 -S --flood -p 80 <TARGET_IP>
+
+# Or using ping flood:
+sudo ping -f -c 10000 <TARGET_IP>
+
+── Test 3: Port scan simulation ─────────────────────────
+# From attacker machine or loopback:
+nmap -sS -p 1-10000 --min-rate 5000 <TARGET_IP>
+
+# SYN scan with timing:
+nmap -sS -T5 -A <TARGET_IP>
+
+── Test 4: Verify blocking ──────────────────────────────
+# After anomaly is detected (after 3 windows ~15 sec):
+sudo iptables -L INPUT -n -v | grep DROP
+
+# Check logs:
+tail -f ~/adaptive_ai_firewall/firewall.log
+tail -f ~/adaptive_ai_firewall/blocked_ips.log
+
+── Test 5: API verification ─────────────────────────────
+curl http://localhost:5000/api/stats | python3 -m json.tool
+curl http://localhost:5000/api/blocked | python3 -m json.tool
+curl http://localhost:5000/api/health
+
+============================================================
+PHASE 6: CLEANUP
+============================================================
+
+── Remove NFQUEUE rule ───────────────────────────────────
+sudo iptables -D INPUT -j NFQUEUE --queue-num 0
+sudo iptables -D FORWARD -j NFQUEUE --queue-num 0
+
+── Flush all custom iptables rules ──────────────────────
+# WARNING: This removes ALL custom INPUT/FORWARD rules
+sudo iptables -F INPUT
+sudo iptables -F FORWARD
+
+# To remove only blocked IPs (safer):
+sudo iptables -L INPUT -n --line-numbers
+sudo iptables -D INPUT <line-number>
+
+── Save iptables rules (persist across reboots) ─────────
+sudo iptables-save > /etc/iptables/rules.v4
+sudo apt install iptables-persistent -y
+
+── Unblock an IP via API ────────────────────────────────
+curl -X POST http://localhost:5000/api/unblock \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "192.168.1.100"}'
+
+============================================================
+PHASE 7: FILE ARCHITECTURE
+============================================================
+
+adaptive_ai_firewall/
+│
+├── colab_training.py          ← Run in Google Colab
+│
+├── model/
+│   ├── model.pkl              ← Trained Isolation Forest
+│   ├── preprocessor.pkl       ← Sklearn ColumnTransformer
+│   └── feature_schema.pkl     ← Feature column names
+│
+├── backend/
+│   ├── app.py                 ← Flask app (main entry)
+│   ├── packet_processor.py    ← NFQUEUE + ML prediction
+│   ├── flow_manager.py        ← 5-sec sliding window
+│   ├── blocker.py             ← iptables blocking
+│   └── requirements.txt       ← Python dependencies
+│
+├── frontend/
+│   ├── templates/
+│   │   └── dashboard.html     ← Dashboard page
+│   └── static/
+│       ├── css/style.css      ← Dark cyber theme CSS
+│       └── js/script.js       ← Chart.js + live polling
+│
+├── firewall.log               ← Runtime event log (auto-created)
+├── blocked_ips.log            ← Blocked IP audit log (auto-created)
+└── run_commands.txt           ← This file
+
+============================================================
+TROUBLESHOOTING
+============================================================
+
+Error: "Permission denied" on iptables
+→ Run with sudo: sudo venv/bin/python backend/app.py
+
+Error: "Failed to open queue" (NFQUEUE)
+→ Make sure iptables rule is added BEFORE starting app:
+  sudo iptables -I INPUT -j NFQUEUE --queue-num 0
+
+Error: "No module named netfilterqueue"
+→ Install system lib first:
+  sudo apt install libnetfilter-queue-dev
+  pip install netfilterqueue
+
+Error: Model feature mismatch
+→ Ensure model.pkl, preprocessor.pkl, and feature_schema.pkl
+  are all from the SAME Colab training run.
+
+Error: Flask port already in use
+→ Kill existing process: sudo fuser -k 5000/tcp
+  Or change port in app.py
+
+============================================================

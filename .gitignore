@@ -1,0 +1,29 @@
+# Virtual Environments
+venv/
+env/
+.env
+
+# Cache and Compiled Python Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node.js
+node_modules/
+dist/
+build/
+
+# Logs and databases
+*.log
+*.sqlite3
+logs/
+
+# ML Models and schemas (Large files)
+*.pkl
+*.h5
+*.model
+
+# OS generated files
+.DS_Store
+Thumbs.db
