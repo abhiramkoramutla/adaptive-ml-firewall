@@ -83,6 +83,12 @@ class CaptureEngine:
         dst_ip = scapy_pkt.dst
         proto  = scapy_pkt.proto
 
+        # Defense-in-depth: always pass loopback through, even if iptables
+        # rule somehow lets it reach the queue.
+        if src_ip.startswith("127.") or dst_ip.startswith("127."):
+            packet.accept()
+            return
+
         # 1. Update Flow Tracker
         flow = self.flow_tracker.update(scapy_pkt)
 
@@ -116,6 +122,11 @@ class CaptureEngine:
         }
         attack_type = self.classifier.classify(classifier_flow)
 
+        # Normalize IsolationForest score to a 0-1 confidence.
+        # IF scores: >0 = normal, <0 = anomaly. Map to [0,1] for display.
+        # We clamp to a reasonable range (-0.5 .. 0.5) then invert+scale.
+        norm_confidence = max(0.0, min(1.0, (-score + 0.05) / 0.5))
+
         # Bug 9 fix: include attack_type and syn_ratio so routes.py can display them
         log_entry = {
             "timestamp":      time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -123,7 +134,7 @@ class CaptureEngine:
             "dst_ip":         dst_ip,
             "protocol":       str(proto),
             "prediction":     "ATTACK" if (is_anomaly or attack_type != "None") else "NORMAL",
-            "confidence":     round(float(score) if is_anomaly else 0.0, 4),
+            "confidence":     round(norm_confidence if (is_anomaly or attack_type != "None") else 0.0, 4),
             "packet_rate":    round(features['packet_rate'], 2),
             "avg_packet_size":round(features['avg_packet_size'], 2),
             "syn_ratio":      round(features['syn_ratio'], 4),

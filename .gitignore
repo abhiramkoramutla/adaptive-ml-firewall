@@ -1,29 +1,103 @@
+# ==============================================================================
+# Adaptive AI Firewall — .gitignore
+# ==============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
 # Virtual Environments
+.venv/
 venv/
 env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa*
+id_ecdsa*
+id_ed25519*
 
-# Cache and Compiled Python Files
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Node.js
-node_modules/
-dist/
-build/
-
-# Logs and databases
+# Logs and runtime databases
 *.log
 *.sqlite3
-logs/
+logs/*
+!logs/.gitkeep
+firewall.log
+blocked_ips.log
 
-# ML Models and schemas (Large files)
+# Node.js / Frontend dependencies & build outputs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
+frontend-react/dist/
+
+# Machine Learning: Models, weights, scalers, and checkpoints
 *.pkl
+*.pickle
+*.joblib
 *.h5
+*.hdf5
+*.pt
+*.pth
+*.onnx
+*.bin
 *.model
+*.ckpt
 
-# OS generated files
+# Datasets and raw capture captures
+*.parquet
+*.csv
+*.tsv
+*.pcap
+*.pcapng
+*.feather
+*.arrow
+*.db
+
+# Unit test, coverage & linter caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# IDE and Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS-generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
+
+# Duplicate generated image at root (kept in static/images/)
+/correlation_heatmap.png

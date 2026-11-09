@@ -43,7 +43,7 @@ const RocCurve = () => {
         </div>
       </div>
 
-      <div className="flex-1 w-full min-h-[350px]">
+      <div className="w-full" style={{ height: '380px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
             <defs>

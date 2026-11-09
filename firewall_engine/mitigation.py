@@ -106,21 +106,16 @@ class Mitigation:
                 self.unblock_ip(ip)
 
     def setup_nfqueue(self, queue_num):
-        # Insert NFQUEUE rule at the very top (before any DROP rules)
-        # Wait, if we insert DROP rules at 1, we should insert NFQUEUE at 1 too?
-        # Actually, if we insert NFQUEUE at 1, then DROP at 1, the DROP will be before NFQUEUE.
-        # Requirements say: "Ensure rules are inserted at top priority".
-        # If we want the DROP to take effect, it must be ABOVE the NFQUEUE rule.
-        # But if the packet is already in NFQUEUE, the kernel doesn't process other rules for it yet.
-        # The prompt says: "Ensure NFQUEUE callback uses: if attack_detected: packet.drop() else: packet.accept()"
-        # This implies the callback ITSELF does the dropping for the CURRENT packet.
-        # The iptables DROP rule is for FUTURE packets from same IP.
-        cmd = ["iptables", "-I", "INPUT", "1", "-j", "NFQUEUE", "--queue-num", str(queue_num)]
+        # Insert NFQUEUE rule at the very top (before any DROP rules).
+        # Exclude loopback interface (! -i lo) so local dashboard traffic
+        # is never intercepted and the web UI does not time out.
+        cmd = ["iptables", "-I", "INPUT", "1", "!", "-i", "lo", "-j", "NFQUEUE", "--queue-num", str(queue_num)]
         subprocess.run(cmd, check=True)
-        logger.info(f"[IPTABLES] NFQUEUE {queue_num} initialized at position 1")
+        logger.info(f"[IPTABLES] NFQUEUE {queue_num} initialized (exclude lo) at position 1")
 
     def cleanup(self, queue_num):
-        subprocess.run(["iptables", "-D", "INPUT", "-j", "NFQUEUE", "--queue-num", str(queue_num)], check=False)
+        # Must match the rule inserted in setup_nfqueue (with ! -i lo)
+        subprocess.run(["iptables", "-D", "INPUT", "!", "-i", "lo", "-j", "NFQUEUE", "--queue-num", str(queue_num)], check=False)
         with self._lock:
             for ip in list(self.blocked_ips.keys()):
                 subprocess.run(["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"], check=False)

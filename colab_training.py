@@ -29,16 +29,19 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 
 # ── CELL 3: Load dataset from local path ─────────────────
-filename = "/home/abhiram/Downloads/UNSW_NB15_training-set.parquet"
+filename = os.getenv("DATASET_PATH", "UNSW_NB15_training-set.parquet")
 if not os.path.exists(filename):
     print(f"[*] Fallback: Dataset not found at {filename}")
-    # Try a relative path as fallback
-    filename = "UNSW_NB15_training-set.parquet"
+    # Try common fallback paths
+    for candidate in [
+        "model/UNSW_NB15_training-set.parquet",
+        "ml_model/UNSW_NB15_training-set.parquet",
+    ]:
+        if os.path.exists(candidate):
+            filename = candidate
+            break
     if not os.path.exists(filename):
-        # One last try — local ml_model folder
-        filename = "ml_model/UNSW_NB15_training-set.parquet"
-        if not os.path.exists(filename):
-            print("[!] Warning: Dataset file not found in common locations.")
+        print("[!] Warning: Dataset file not found in common locations.")
 
 if os.path.exists(filename):
     df = pd.read_parquet(filename)

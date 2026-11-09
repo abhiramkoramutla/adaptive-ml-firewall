@@ -78,19 +78,23 @@ class IPTablesController:
         """
         Insert the NFQUEUE rule at the top of INPUT so ALL packets are
         intercepted before any DROP rules apply.
+        Loopback interface (lo) is excluded so localhost traffic is never
+        intercepted, preventing the dashboard from timing out.
         """
         success = self._run([
             "iptables", "-I", "INPUT", "1",
+            "!", "-i", "lo",
             "-j", "NFQUEUE", "--queue-num", str(queue_num)
         ])
         if success:
-            logger.info("NFQUEUE rule inserted (queue %d).", queue_num)
+            logger.info("NFQUEUE rule inserted (exclude lo, queue %d).", queue_num)
         return success
 
     def remove_nfqueue(self, queue_num: int = 0) -> bool:
         """Remove the NFQUEUE rule (cleanup on shutdown)."""
         success = self._run([
             "iptables", "-D", "INPUT",
+            "!", "-i", "lo",
             "-j", "NFQUEUE", "--queue-num", str(queue_num)
         ])
         if success:

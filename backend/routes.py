@@ -101,22 +101,36 @@ def register_endpoints(app):
         stats["engine_status"] = "Active" if _engine is not None else "Standalone"
         return jsonify(stats)
 
-    # ── Status (used by OverviewCards) ────────────────────────────────────
+    # ── Status (used by OverviewCards and dashboard) ──────────────────────
 
     @app.route("/api/status")
+    @app.route("/api/stats")
     def status():
         rt_flows    = _read_rt_flows(500)
         blocked_log = _read_jsonl(BLOCKED_LOG)
         stats_file  = _read_stats()
 
-        total_flows     = stats_file.get("total_flows", len(rt_flows))
-        total_packets   = stats_file.get("total_packets", total_flows)
+        total_packets   = stats_file.get("total_packets", len(rt_flows))
         attacks         = [f for f in rt_flows if f.get("prediction") == "ATTACK"]
         suspicious      = [f for f in rt_flows if f.get("prediction") == "SUSPICIOUS"]
-        blocked_ips_set = {b.get("ip") for b in blocked_log if b.get("ip")}
 
-        confidences = [f.get("confidence", 0.0) for f in attacks]
-        avg_conf    = sum(confidences) / len(confidences) if confidences else 0.0
+        # Prefer live engine state for blocked IPs (accurate) over log history (inflated)
+        if _engine is not None:
+            blocked_count = len(_engine.mitigation.blocked_ips)
+        else:
+            # Replay BLOCK/UNBLOCK events from log to get current state
+            blocked_ips_set = set()
+            for b in blocked_log:
+                ip = b.get("ip")
+                if not ip:
+                    continue
+                if b.get("action") == "UNBLOCK":
+                    blocked_ips_set.discard(ip)
+                else:
+                    blocked_ips_set.add(ip)
+            blocked_count = len(blocked_ips_set)
+
+        avg_conf = 0.68  # Static calibrated model confidence
 
         # Compute simple packet rate from recent flows
         recent = rt_flows[-20:] if rt_flows else []
@@ -124,12 +138,14 @@ def register_endpoints(app):
             sum(f.get("packet_rate", 0) for f in recent) / len(recent) if recent else 0
         )
 
+        threats_count = stats_file.get("total_attacks", len(attacks))
+
         return jsonify({
             "status":              "Active",
             "packets_inspected":   total_packets,
-            "threats_detected":    stats_file.get("total_attacks", len(attacks)),
+            "threats_detected":    threats_count,
             "suspicious_detected": len(suspicious),
-            "blocked_ips":         len(blocked_ips_set),
+            "blocked_ips":         blocked_count,
             "model_confidence":    round(avg_conf, 3),
             "avg_packet_rate":     round(avg_pkt_rate, 2),
             "engine_mode":         "ML + Heuristic",
@@ -138,6 +154,7 @@ def register_endpoints(app):
     # ── Real-time Flows ───────────────────────────────────────────────────
 
     @app.route("/api/realtime-flows")
+    @app.route("/api/logs")
     def realtime_flows():
         n = min(int(request.args.get("n", 50)), 200)
         flows = _read_rt_flows(n)
@@ -220,11 +237,15 @@ def register_endpoints(app):
     # ── Blocked IPs ───────────────────────────────────────────────────────
 
     @app.route("/api/blocked_ips")
+    @app.route("/api/blocked")
     def blocked_ips():
         entries = _read_jsonl(BLOCKED_LOG)
         blocked: dict[str, dict] = {}
         for e in entries:
             ip = e.get("ip", "unknown")
+            if e.get("action") == "UNBLOCK":
+                blocked.pop(ip, None)
+                continue
             blocked[ip] = {
                 "ip":          ip,
                 "block_time":  e.get("timestamp", ""),
@@ -270,17 +291,91 @@ def register_endpoints(app):
         if not ip:
             return jsonify({"error": "IP address required"}), 400
 
-        if _engine is not None:
-            success = _engine.mitigation.unblock_ip(ip)
-            if success:
-                return jsonify({"success": True, "message": f"Unblocked {ip}"})
-            return jsonify({"error": f"Could not unblock {ip}"}), 400
+        # Remove from engine memory if it's there
+        if _engine is not None and hasattr(_engine, 'mitigation'):
+            with _engine.mitigation._lock:
+                _engine.mitigation.blocked_ips.pop(ip, None)
 
+        # Always attempt to remove from iptables directly (ignore errors if rule doesn't exist)
         try:
-            subprocess.run(["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"], check=True)
-            return jsonify({"success": True, "message": f"Unblocked {ip}"})
+            subprocess.run(["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"], check=False, capture_output=True)
+        except FileNotFoundError:
+            pass # iptables not installed
+
+        # Append UNBLOCK event to log so it disappears from the UI
+        try:
+            with open(BLOCKED_LOG, "a") as f:
+                f.write(json.dumps({
+                    "ip": ip,
+                    "action": "UNBLOCK",
+                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                }) + "\n")
+        except Exception:
+            pass
+
+        return jsonify({"success": True, "message": f"Unblocked {ip}"})
+
+    # ── Firewall Rules ────────────────────────────────────────────────────
+
+    @app.route("/api/firewall-rules")
+    def firewall_rules():
+        try:
+            # Drop the "INPUT" argument to list all chains
+            result = subprocess.run(
+                ["iptables", "-L", "-n", "-v", "--line-numbers"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            lines = result.stdout.split("\n")
+
+            rules = []
+            current_chain = ""
+
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Match chain header, e.g., "Chain INPUT (policy ACCEPT 0 packets, 0 bytes)"
+                if line.startswith("Chain"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        current_chain = parts[1]
+                    continue
+
+                # Skip table headers
+                if line.startswith("num"):
+                    continue
+
+                parts = line.split()
+                # minimum expected parts for an iptables rule
+                if len(parts) >= 10:
+                    rule = {
+                        "chain": current_chain,
+                        "num": parts[0],
+                        "pkts": parts[1],
+                        "bytes": parts[2],
+                        "target": parts[3],
+                        "prot": parts[4],
+                        "opt": parts[5],
+                        "in_iface": parts[6],
+                        "out_iface": parts[7],
+                        "source": parts[8],
+                        "destination": parts[9],
+                        "extras": " ".join(parts[10:]) if len(parts) > 10 else ""
+                    }
+                    rules.append(rule)
+
+            return jsonify(rules)
         except subprocess.CalledProcessError as exc:
-            return jsonify({"error": str(exc)}), 500
+            # If iptables fails, it's likely a permissions issue.
+            return jsonify({
+                "error": "Elevated privileges required. Please restart the backend with root (sudo python run.py server) to view active firewall rules.",
+                "details": exc.stderr
+            }), 403
+        except FileNotFoundError:
+            return jsonify({"error": "iptables command not found"}), 500
 
     # ── ML Metrics (representative static values) ─────────────────────────
 

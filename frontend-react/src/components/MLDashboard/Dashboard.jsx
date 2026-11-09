@@ -17,10 +17,19 @@ import RocCurve from './RocCurve';
 import FeatureImportance from './FeatureImportance';
 import AnomalyChart from './AnomalyChart';
 import PredictionTable from './PredictionTable';
+import FirewallRules from './FirewallRules';
 import { clsx } from 'clsx';
 
 const Dashboard = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    return hash || 'overview';
+  });
+
+  // Update hash when tab changes
+  useEffect(() => {
+    window.location.hash = activeTab;
+  }, [activeTab]);
 
   const tabs = [
     { id: 'overview', label: 'Intelligence Overview', icon: BrainCircuit },
@@ -29,6 +38,7 @@ const Dashboard = () => {
     { id: 'importance', label: 'Feature Importance', icon: BarChart3 },
     { id: 'anomaly', label: 'Anomaly Distribution', icon: Zap },
     { id: 'live', label: 'Live Traffic', icon: Activity },
+    { id: 'rules', label: 'Active Rules', icon: ShieldAlert },
   ];
 
   const renderContent = () => {
@@ -83,6 +93,12 @@ const Dashboard = () => {
               Real-time Traffic Intelligence Logs
             </h3>
             <PredictionTable />
+          </div>
+        );
+      case 'rules':
+        return (
+          <div className="glass-panel p-8 min-h-[500px]">
+            <FirewallRules />
           </div>
         );
       default:
